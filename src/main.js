@@ -9,7 +9,7 @@ const TYPES={
  blaster:{label:'✦ BLASTER',cost:5,hp:85,damage:10,range:145,rate:430,speed:38}
 };
 const $=id=>document.getElementById(id);
-let scene,mode='campaign',level=1,selected='sword',ink=12,folds=2,units=[],projectiles=[],state='playing',elapsed=0,spawnTimer=0,score=0;
+let hasDeployed=false;let scene,mode='campaign',level=1,selected='sword',ink=12,folds=2,units=[],projectiles=[],state='playing',elapsed=0,spawnTimer=0,score=0;
 const getSaved=()=>{try{return Math.max(1,Math.min(10,Number(localStorage.getItem('inkwars-level'))||1))}catch{return 1}};
 level=getSaved();
 function say(message){$('message').textContent=message}
@@ -20,7 +20,7 @@ function hud(){
  for(const [type,cfg] of Object.entries(TYPES)){const b=$('unit-'+type);if(b){b.disabled=ink<cfg.cost||state!=='playing';b.classList.toggle('selected',selected===type)}}
 }
 function start(){
- units=[];projectiles=[];state='playing';elapsed=0;spawnTimer=0;score=0;
+ units=[];projectiles=[];hasDeployed=false;state='playing';elapsed=0;spawnTimer=0;score=0;
  ink=mode==='campaign'?12+Math.min(8,level):16;folds=mode==='campaign'?2+Math.floor((level-1)/4):99;
  scene.children.removeAll();
  scene.add.rectangle(W/2,H/2,W,H,0xfffaeb);
@@ -98,7 +98,7 @@ function tick(time,delta){
  const dead=units.filter(u=>u.hp<=0);
  for(const u of dead){u.g.destroy();u.bar.destroy();if(u.team===1){score++;if(mode==='survival')ink=Math.min(25,ink+1)}}
  units=units.filter(u=>u.hp>0);
- if(!units.some(u=>u.team===0)&&elapsed>500)finish(false);
+ if(hasDeployed&&!units.some(u=>u.team===0))finish(false);
  else if(mode==='campaign'&&!units.some(u=>u.team===1))finish(true);
  hud();
 }
@@ -111,7 +111,7 @@ class Battle extends Phaser.Scene{
    if(x>W*.49||y<60||y>H-35){say('Deploy blue units on the left half of the paper.');return}
    const cost=TYPES[selected].cost;
    if(ink<cost){say('Not enough ink!');return}
-   ink-=cost;addUnit(selected,0,x,y);say('Unit deployed. Fold the paper to bring the armies together!');hud();
+   ink-=cost;hasDeployed=true;addUnit(selected,0,x,y);say('Unit deployed. Fold the paper to bring the armies together!');hud();
   });start();
  }
  update(t,d){tick(t,d)}
