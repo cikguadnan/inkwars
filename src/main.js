@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import './style.css';
 const W=960,H=600,$=id=>document.getElementById(id);
-let scene,mode='campaign',level=1,folds=5,ink=10,score=0,round='ready',pieces=[],guide,dragStart=null,turn=0;
+let scene,mode='campaign',level=1,folds=5,ink=10,score=0,round='ready',pieces=[],guide,dragStart=null,turn=0,edgePreview=null;
 const load=()=>{try{return Math.max(1,Math.min(10,Number(localStorage.getItem('inkwars-level'))||1))}catch{return 1}};
 level=load();
 const levels=[
@@ -33,11 +33,13 @@ function stick(p){
 }
 function start(){
  if(!scene)return;
- scene.tweens.killAll();scene.children.removeAll();pieces=[];folds=5;ink=10;score=0;turn=0;round='ready';dragStart=null;guide=null;
+ scene.tweens.killAll();scene.children.removeAll();pieces=[];folds=5;ink=10;score=0;turn=0;round='ready';dragStart=null;guide=null;if(edgePreview){edgePreview.destroy();edgePreview=null}
  scene.add.rectangle(W/2,H/2,W,H,0xfffcf1);
  for(let x=20;x<W;x+=32)scene.add.line(0,0,x,0,x,H,0x93b7d5,.15).setOrigin(0);
  for(let y=20;y<H;y+=32)scene.add.line(0,0,0,y,W,y,0x93b7d5,.15).setOrigin(0);
  scene.add.rectangle(W/2,300,W,3,0x8e929a,.5);
+ scene.add.rectangle(W/2,H-10,W-12,18,0xc9ae7d,.65).setDepth(6);
+ scene.add.text(W/2,H-22,'↑ DRAG THIS PAPER EDGE UP TO FOLD ↑',{fontFamily:'monospace',fontSize:'16px',color:'#84613a'}).setOrigin(.5).setDepth(7);
  scene.add.text(24,16,'CPU  ♥ ♥ ♥',{fontFamily:'monospace',fontSize:'20px',color:'#b83f52'});
  scene.add.text(24,H-35,'YOU  ♥ ♥ ♥',{fontFamily:'monospace',fontSize:'20px',color:'#275bb8'});
  const c=config();
@@ -45,7 +47,7 @@ function start(){
  for(let i=0;i<count;i++){
   const b=c.blue[i],r=c.red[i];pieces.push({x:b[0],y:b[1],team:'blue',alive:true});pieces.push({x:r[0],y:r[1],team:'red',alive:true});
  }
- pieces.forEach(stick);say('Stationary armies. Press FOLD PAPER, then drag a horizontal crease to line up blue ink with red targets.');hud();
+ pieces.forEach(stick);say('Grab the bottom paper edge and drag upward to fold. Release to attack.');hud();
 }
 function line(y){
  if(guide)guide.destroy();
@@ -121,18 +123,53 @@ function fold(y){
  draw();
 }
 
+function edgeDraw(y){
+ if(edgePreview)edgePreview.destroy();
+ edgePreview=scene.add.graphics().setDepth(13);
+ y=Phaser.Math.Clamp(y,210,390);
+ edgePreview.fillStyle(0xe9d7b4,.78);
+ edgePreview.fillRect(0,y,W,Math.max(0,H-y));
+ edgePreview.lineStyle(4,0xb78a4b,.95);
+ edgePreview.lineBetween(0,y,W,y);
+ edgePreview.lineStyle(2,0x275bb8,.55);
+ for(const p of pieces.filter(p=>p.team==='blue'&&p.alive)){
+  const reflected=2*y-p.y;
+  if(reflected>=0&&reflected<=H)edgePreview.strokeCircle(p.x,reflected,14);
+ }
+}
+function clearEdge(){if(edgePreview){edgePreview.destroy();edgePreview=null}}
 class Battle extends Phaser.Scene{
  constructor(){super('Battle')}
  create(){scene=this;
-  this.input.on('pointerdown',p=>{if(round!=='aim')return;dragStart={x:p.worldX,y:p.worldY};line(Phaser.Math.Clamp(p.worldY,210,390))});
-  this.input.on('pointermove',p=>{if(round==='aim'&&dragStart)line(Phaser.Math.Clamp(p.worldY,210,390))});
-  this.input.on('pointerup',p=>{if(round==='aim'&&dragStart){dragStart=null;fold(p.worldY)}});
+  this.input.on('pointerdown',p=>{
+   if(folds<=0||round==='win'||round==='lose'||round==='animating')return;
+   const x=p.worldX,y=p.worldY;
+   // Direct paper interaction: drag from the bottom 65 pixels.
+   if(round==='ready'&&y>=H-65){round='edge';dragStart={x,y};edgeDraw(390);say('Drag upward to choose where the paper folds. Release to attack.');hud();return}
+   if(round==='aim'){dragStart={x,y};line(Phaser.Math.Clamp(y,210,390))}
+  });
+  this.input.on('pointermove',p=>{
+   if(!dragStart)return;
+   if(round==='edge')edgeDraw(p.worldY);
+   else if(round==='aim')line(Phaser.Math.Clamp(p.worldY,210,390));
+  });
+  this.input.on('pointerup',p=>{
+   if(!dragStart)return;
+   const began=dragStart;dragStart=null;
+   if(round==='edge'){
+    clearEdge();round='aim';
+    if(Math.abs(p.worldY-began.y)<35){round='ready';say('Pull the bottom edge upwards to fold.');hud();return}
+    fold(p.worldY);return;
+   }
+   if(round==='aim')fold(p.worldY);
+  });
   start();
  }
 }
+
 new Phaser.Game({type:Phaser.AUTO,parent:'game',width:W,height:H,backgroundColor:'#fffcf1',scale:{mode:Phaser.Scale.FIT,autoCenter:Phaser.Scale.CENTER_BOTH},scene:[Battle]});
-$('units').innerHTML='<div class="game-tip">🎯 Fixed targets · Blue ink attacks when folded onto red figures · 5 folds per level</div>';
-$('fold').onclick=()=>{if(round==='ready'){round='aim';say('Drag a horizontal crease across the paper. Ghost circles show where blue attacks will land.')}else if(round==='aim'){round='ready';dragStart=null;clearLine();say('Fold cancelled.')}hud()};
+$('units').innerHTML='<div class="game-tip">✋ Grab the bottom edge and drag upward · Release to fold and attack · Characters stay fixed</div>';
+$('fold').onclick=()=>{if(round==='ready'){round='aim';say('Alternative controls: drag a crease on the battlefield. Or grab the bottom paper edge directly.')}else if(round==='aim'){round='ready';dragStart=null;clearLine();say('Fold cancelled.')}hud()};
 $('restart').onclick=()=>start();
 $('next').onclick=()=>{level=Math.min(10,level+1);start()};
 $('campaign').onclick=()=>{mode='campaign';level=load();start()};
