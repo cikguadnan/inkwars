@@ -58,26 +58,69 @@ function clearLine(){if(guide){guide._mirrored?.destroy();guide.destroy();guide=
 function fold(y){
  if(folds<=0||round!=='aim')return;
  y=Phaser.Math.Clamp(y,210,390);
- folds--;ink=Math.max(0,ink-2);turn++;round='animating';clearLine();
- const overlay=scene.add.rectangle(W/2,(y+H)/2,W,H-y,0xe5d3ad,.42).setDepth(8);
- scene.tweens.add({targets:overlay,scaleY:0,y:y,duration:430,ease:'Sine.InOut',onComplete:()=>{
-  overlay.destroy();let hits=0;
-  for(const b of pieces.filter(p=>p.team==='blue'&&p.alive)){
+ folds--;ink=Math.max(0,ink-2);turn++;round='animating';clearLine();hud();
+ // The bottom half is folded upwards over the top sheet.
+ // A narrowing flap is drawn each frame, and the ink marks move with its surface.
+ const flap=scene.add.graphics().setDepth(8);
+ const flapInk=scene.add.graphics().setDepth(9);
+ const crease=scene.add.graphics().setDepth(10);
+ const originalBlue=pieces.filter(p=>p.team==='blue'&&p.alive);
+ originalBlue.forEach(p=>p.g.setVisible(false));
+ const anim={progress:0};
+ const draw=()=>{
+  const t=anim.progress;
+  const edge=y+(H-y)*(1-2*t);
+  flap.clear();flapInk.clear();crease.clear();
+  flap.fillStyle(0xe9d7b4,.98);
+  flap.fillRect(0,Math.min(y,edge),W,Math.abs(edge-y));
+  flap.lineStyle(3,0xb79d72,.95);
+  flap.lineBetween(0,edge,W,edge);
+  flap.lineStyle(2,0x846e52,.6);
+  flap.lineBetween(0,y,W,y);
+  const shadowHeight=16*(1-Math.abs(t-.5)*2);
+  flap.fillStyle(0x796c5a,.18);flap.fillRect(0,y-4,W,Math.max(1,shadowHeight));
+  for(const p of originalBlue){
+   const py=y+(p.y-y)*(1-2*t);
+   if(py<Math.min(y,edge)-45||py>Math.max(y,edge)+45)continue;
+   const x=p.x,c=0x275bb8;
+   flapInk.lineStyle(4,c,1);
+   flapInk.strokeCircle(x,py-20,11);
+   flapInk.lineBetween(x,py-9,x,py+17);
+   flapInk.lineBetween(x,py,x-19,py+8);
+   flapInk.lineBetween(x,py,x+19,py+8);
+   flapInk.lineBetween(x,py+17,x-15,py+40);
+   flapInk.lineBetween(x,py+17,x+15,py+40);
+   flapInk.fillStyle(c);flapInk.fillCircle(x+23,py+12,7);
+  }
+ };
+ const cleanup=()=>{flap.destroy();flapInk.destroy();crease.destroy();originalBlue.forEach(p=>p.g.setVisible(true))};
+ scene.tweens.add({targets:anim,progress:1,duration:750,ease:'Sine.InOut',onUpdate:draw,onComplete:()=>{
+  let hits=0;
+  const hitEnemies=new Set();
+  for(const b of originalBlue){
    const reflected=2*y-b.y;
-   const enemies=pieces.filter(p=>p.team==='red'&&p.alive&&Math.hypot(p.x-b.x,p.y-reflected)<48);
-   for(const e of enemies){e.alive=false;e.g.destroy();hits++;score+=100;
-    const burst=scene.add.circle(e.x,e.y,9,0x275bb8,.65).setDepth(10);
-    scene.tweens.add({targets:burst,scale:3,alpha:0,duration:450,onComplete:()=>burst.destroy()});
+   for(const e of pieces.filter(p=>p.team==='red'&&p.alive)){
+    if(Math.hypot(e.x-b.x,e.y-reflected)<48)hitEnemies.add(e);
    }
   }
+  for(const e of hitEnemies){e.alive=false;e.g.destroy();hits++;score+=100;
+   const burst=scene.add.circle(e.x,e.y,9,0x275bb8,.65).setDepth(11);
+   scene.tweens.add({targets:burst,scale:3,alpha:0,duration:450,onComplete:()=>burst.destroy()});
+  }
   ink=Math.min(10,ink+hits*2);
-  const remaining=pieces.filter(p=>p.team==='red'&&p.alive).length;
-  if(!remaining){round='win';if(mode==='campaign'){try{localStorage.setItem('inkwars-level',String(Math.max(load(),Math.min(10,level+1))))}catch{}}say('🏆 All targets hit! You win.')}
-  else if(folds<=0){round='lose';say('Out of folds! '+remaining+' red targets remain. Try again.')}
-  else{round='ready';say(hits?'Great fold! '+hits+' target(s) hit. '+remaining+' remain.':'Miss! Adjust the crease so the blue ink overlaps the red figures.')}
-  hud();
+  // Unfold the same paper flap, restoring all surviving ink to fixed positions.
+  scene.tweens.add({targets:anim,progress:0,duration:680,ease:'Sine.InOut',onUpdate:draw,onComplete:()=>{
+   cleanup();
+   const remaining=pieces.filter(p=>p.team==='red'&&p.alive).length;
+   if(!remaining){round='win';if(mode==='campaign'){try{localStorage.setItem('inkwars-level',String(Math.max(load(),Math.min(10,level+1))))}catch{}}say('🏆 All targets hit! You win.')}
+   else if(folds<=0){round='lose';say('Out of folds! '+remaining+' red targets remain. Try again.')}
+   else{round='ready';say(hits?'Great fold! '+hits+' target(s) hit. '+remaining+' remain.':'Miss! Adjust the crease so the blue ink overlaps the red figures.')}
+   hud();
+  }});
  }});
+ draw();
 }
+
 class Battle extends Phaser.Scene{
  constructor(){super('Battle')}
  create(){scene=this;
